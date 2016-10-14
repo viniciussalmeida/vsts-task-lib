@@ -27,6 +27,7 @@ var run = function(cmd, callback) {
  * @param     silent     optional.  defaults to false
  * @param     failOnStdErr     optional.  whether to fail if output to stderr.  defaults to false
  * @param     ignoreReturnCode     optional.  defaults to failing on non zero.  ignore will not fail leaving it up to the caller
+ * @param     windowsVerbatimArguments     optional.  whether to skip quoting/escaping arguments if needed.  defaults to false.
  */
 export interface IExecOptions {
     cwd: string;
@@ -36,6 +37,7 @@ export interface IExecOptions {
     ignoreReturnCode: boolean;
     outStream: stream.Writable;
     errStream: stream.Writable;
+    windowsVerbatimArguments: boolean;
 };
 
 /**
@@ -153,11 +155,11 @@ export class ToolRunner extends events.EventEmitter {
     }
 
     /**
-     * Append argument command line string
-     * e.g. '"arg one" two -z' would append args[]=['arg one', 'two', '-z']
-     * returns ToolRunner for chaining 
+     * Parses an argument line into one or more arguments
+     * e.g. .line('"arg one" two -z') is equivalent to .arg(['arg one', 'two', '-z'])
+     * returns ToolRunner for chaining
      * 
-     * @param     val        string cmdline
+     * @param     val        string argument line
      * @returns   ToolRunner
      */
     public line(val: string): ToolRunner {
@@ -227,6 +229,7 @@ export class ToolRunner extends events.EventEmitter {
 
         ops.outStream = options.outStream || <stream.Writable>process.stdout;
         ops.errStream = options.errStream || <stream.Writable>process.stderr;
+        ops['windowsVerbatimArguments'] = options.windowsVerbatimArguments || false;
 
         var argString = this.args.join(' ') || '';
         var cmdString = this.toolPath;
@@ -263,8 +266,16 @@ export class ToolRunner extends events.EventEmitter {
             // https://nodejs.org/api/child_process.html#child_process_child_process_spawn_command_args_options
 
             //start the child process for both tools
-            var cpFirst = child.spawn(toolPathFirst, this.args, {cwd: ops.cwd, env: ops.env});
-            cp = child.spawn(toolPath, this.pipeOutputToTool.args, {cwd: ops.cwd, env: ops.env});
+            var spawnOptionsFirst = { } as child.SpawnOptions;
+            spawnOptionsFirst.cwd = ops.cwd;
+            spawnOptionsFirst.env = ops.env;
+            spawnOptionsFirst['windowsVerbatimArguments'] = ops.windowsVerbatimArguments;
+            var cpFirst = child.spawn(toolPathFirst, this.args, spawnOptionsFirst);
+            var spawnOptions = { } as child.SpawnOptions;
+            spawnOptions.cwd = ops.cwd;
+            spawnOptions.env = ops.env;
+            spawnOptions['windowsVerbatimArguments'] = ops.windowsVerbatimArguments;
+            cp = child.spawn(toolPath, this.pipeOutputToTool.args, spawnOptions);
 
             //pipe stdout of first tool to stdin of second tool
             cpFirst.stdout.on('data', (data: Buffer) => {
@@ -296,7 +307,11 @@ export class ToolRunner extends events.EventEmitter {
             });
 
         } else {
-            cp = child.spawn(toolPath, this.args, {cwd: ops.cwd, env: ops.env});
+            var spawnOptions = { } as child.SpawnOptions;
+            spawnOptions.cwd = ops.cwd;
+            spawnOptions.env = ops.env;
+            spawnOptions['windowsVerbatimArguments'] = ops.windowsVerbatimArguments;
+            cp = child.spawn(toolPath, this.args, spawnOptions);
         }
 
         var processLineBuffer = (data: Buffer, strBuffer: string, onLine:(line: string) => void): void => {
@@ -415,6 +430,7 @@ export class ToolRunner extends events.EventEmitter {
 
         ops.outStream = options.outStream || <stream.Writable>process.stdout;
         ops.errStream = options.errStream || <stream.Writable>process.stderr;
+        ops['windowsVerbatimArguments'] = options.windowsVerbatimArguments || false;
 
         var argString = this.args.join(' ') || '';
         var cmdString = this.toolPath;
@@ -425,8 +441,12 @@ export class ToolRunner extends events.EventEmitter {
         if (!ops.silent) {
             ops.outStream.write('[command]' + cmdString + os.EOL);    
         }
-        
-        var r = child.spawnSync(this.toolPath, this.args, { cwd: ops.cwd, env: ops.env });
+
+        var spawnSyncOptions = { } as child.SpawnSyncOptions;
+        spawnSyncOptions.cwd = ops.cwd;
+        spawnSyncOptions.env = ops.env;
+        spawnSyncOptions['windowsVerbatimArguments'] = ops.windowsVerbatimArguments;
+        var r = child.spawnSync(this.toolPath, this.args, spawnSyncOptions);
         
         if (r.stdout && r.stdout.length > 0) {
             ops.outStream.write(r.stdout);
