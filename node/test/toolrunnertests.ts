@@ -730,7 +730,7 @@ describe('Toolrunner Tests', function () {
     })
 
     if (os.platform() == 'win32') {
-        it('allows verbatim args on Windows', function (done) {
+        it('exec allows verbatim args on Windows', function (done) {
             this.timeout(1000);
 
             let cmd = tl.tool(tl.which('cmd', true))
@@ -750,7 +750,7 @@ describe('Toolrunner Tests', function () {
                     done(err);
                 });
         });
-        it('defaults to non-verbatim args on Windows', function (done) {
+        it('exec defaults to non-verbatim args on Windows', function (done) {
             this.timeout(1000);
 
             let cmd = tl.tool(tl.which('cmd', true))
@@ -769,6 +769,28 @@ describe('Toolrunner Tests', function () {
                 .fail(function (err) {
                     done(err);
                 });
+        });
+        it('exec sync allows verbatim args on Windows', function (done) {
+            this.timeout(1000);
+
+            let cmd = tl.tool(tl.which('cmd', true))
+                .arg([ '/c', 'echo', 'arg1', 'arg2:"some val"' ]);
+            let result: trm.IExecResult = cmd.execSync({ silent: true, windowsVerbatimArguments: true } as trm.IExecOptions);
+            assert.equal(result.code, 0, 'return code of cmd should be 0');
+            assert(result.stdout && result.stdout.length > 0, 'should have emitted stdout');
+            assert.equal(result.stdout.trim(), 'arg1 arg2:"some val"');
+            done();
+        });
+        it('exec sync defaults to non-verbatim args on Windows', function (done) {
+            this.timeout(1000);
+
+            let cmd = tl.tool(tl.which('cmd', true))
+                .arg([ '/c', 'echo', 'arg1', 'arg2:"some val"' ]);
+            let result: trm.IExecResult = cmd.execSync({ silent: true } as trm.IExecOptions);
+            assert.equal(result.code, 0, 'return code of cmd should be 0');
+            assert(result.stdout && result.stdout.length > 0, 'should have emitted stdout');
+            assert.equal(result.stdout.trim(), 'arg1 "arg2:\\"some val\\""');
+            done();
         });
     }
 });
