@@ -123,8 +123,7 @@ export class ToolRunner extends events.EventEmitter {
 
     private _getToolPath(options: IExecOptions): string {
         if (process.platform == 'win32') {
-             let upperToolPath: string = this.toolPath.toUpperCase();
-             if (upperToolPath.endsWith('.BAT') || upperToolPath.endsWith('.CMD')) {
+             if (this._isCmdFile()) {
                  return process.env['COMSPEC'] || 'cmd.exe';
              }
         }
@@ -134,14 +133,10 @@ export class ToolRunner extends events.EventEmitter {
 
     private _getArgs(options: IExecOptions): string[] {
         if (process.platform == 'win32') {
-            let upperToolPath: string = this.toolPath.toUpperCase();
-            if (upperToolPath.endsWith('.BAT') || upperToolPath.endsWith('.CMD')) {
+            if (this._isCmdFile()) {
                 let argline: string = `/D /S /C "${this._windowsQuoteCmdArg(this.toolPath)}`;
                 for (let i = 0 ; i < this.args.length ; i++) {
-                    if (i > 0) {
-                        argline += ' ';
-                    }
-
+                    argline += ' ';
                     argline += options.windowsVerbatimArguments ? this.args[i] : this._windowsQuoteCmdArg(this.args[i]);
                 }
 
@@ -158,9 +153,9 @@ export class ToolRunner extends events.EventEmitter {
 
                     throw new Error('Unexpected arguments passed to args.slice when windowsVerbatimArguments flag is set.');
                 };
-                args.unshift = function () {
+                args.unshift = function () { // override unshift, force Node to push the quoted file name
                     if (arguments.length == 1) {
-                        return args.unshift(`"${arguments[0]}"`); // quote the file name
+                        return Array.prototype.unshift.call(args, `"${arguments[0]}"`); // quote the file name
                     }
 
                     throw new Error('Unexpected arguments passed to args.unshift when windowsVerbatimArguments flag is set.');
@@ -170,6 +165,19 @@ export class ToolRunner extends events.EventEmitter {
         }
 
         return this.args;
+    }
+
+    private _getSpawnSyncOptions(options: IExecOptions): child.SpawnSyncOptions {
+        let result = { } as child.SpawnSyncOptions;
+        result.cwd = options.cwd;
+        result.env = options.env;
+        result['windowsVerbatimArguments'] = options.windowsVerbatimArguments || this._isCmdFile();
+        return result;
+    }
+
+    private _isCmdFile(): boolean {
+        let upperToolPath: string = this.toolPath.toUpperCase();
+        return upperToolPath.endsWith('.CMD') || upperToolPath.endsWith('.BAT');
     }
 
     private _windowsQuoteCmdArg(arg: string): string {
@@ -235,7 +243,7 @@ export class ToolRunner extends events.EventEmitter {
         let reverse: string = '"';
         let quote_hit = true;
         for (let i = arg.length ; i > 0 ; i--) { // walk the string in reverse
-            reverse += arg.substr[i - 1];
+            reverse += arg[i - 1];
             if (quote_hit && arg[i - 1] == '\\') {
                 reverse += '\\';
             }
@@ -565,12 +573,13 @@ export class ToolRunner extends events.EventEmitter {
             ops.outStream.write('[command]' + cmdString + os.EOL);    
         }
 
-        var spawnSyncOptions = { } as child.SpawnSyncOptions;
-        spawnSyncOptions.cwd = ops.cwd;
-        spawnSyncOptions.env = ops.env;
-        spawnSyncOptions['windowsVerbatimArguments'] = ops.windowsVerbatimArguments;
-        var r = child.spawnSync(this.toolPath, this.args, spawnSyncOptions);
-        
+// console.log();
+// console.log('TOOL PATH=' + this._getToolPath(options));
+console.log('ARGS=' + JSON.stringify(this._getArgs(options), null, 2));
+// console.log('OPTIONS=' + JSON.stringify(this._getSpawnSyncOptions(ops), null, 2));
+// console.log();
+        var r = child.spawnSync(this._getToolPath(options), this._getArgs(options), this._getSpawnSyncOptions(ops));
+
         if (r.stdout && r.stdout.length > 0) {
             ops.outStream.write(r.stdout);
         }

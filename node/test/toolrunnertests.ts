@@ -732,12 +732,18 @@ describe('Toolrunner Tests', function () {
     })
 
     if (os.platform() == 'win32') {
-        // compile a program that allows checking args passed to it
-        let compileArgUtil = (targetPath: string): void => {
+        // -----------------------------------------------------------------------------
+        // helper function to compile a .NET program that prints the command line args
+        // -----------------------------------------------------------------------------
+        let compileArgsExe = (fileNameOnly: string): string => {
+            let directory = path.join(testutil.getTestTemp(), 'args-exe');
+            tl.mkdirP(directory);
+            let exePath = path.join(directory, fileNameOnly);
+
             // short-circuit if already compiled
             try {
-                fs.statSync(targetPath);
-                return;
+                fs.statSync(exePath);
+                return exePath;
             }
             catch (err) {
                 if (err.code != 'ENOENT') {
@@ -745,29 +751,22 @@ describe('Toolrunner Tests', function () {
                 }
             }
 
-            let sourceContent = ''
-                + os.EOL + 'using System;'
-                + os.EOL + 'namespace Args {'
-                + os.EOL + '    public static class Program {'
-                + os.EOL + '        public static void Main(string[] args) {'
-                + os.EOL + '            for (int i = 0 ; i < args.Length ; i++) {'
-                + os.EOL + '                Console.WriteLine("args[{0}]: \'{1}\'", i, args[i]);'
-                + os.EOL + '            }'
-                + os.EOL + '        }'
-                + os.EOL + '    }'
-                + os.EOL + '}';
-            let sourceFile = path.join(testutil.getTestTemp(), 'argutil.cs')
-            tl.mkdirP(testutil.getTestTemp());
-            fs.writeFileSync(sourceFile, sourceContent);
+            let sourceFile = path.join(__dirname, 'scripts', 'args.cs');
             child_process.execFileSync(
                 'C:\\Windows\\Microsoft.NET\\Framework64\\v2.0.50727\\csc.exe',
                 [
                     '/target:exe',
-                    `/out:${targetPath}`,
+                    `/out:${exePath}`,
                     sourceFile
                 ]);
+            return exePath;
         }
 
+        // ----------------
+        // exec arg tests
+        // ----------------
+
+        // verbatim args
         it('exec allows verbatim args on Windows', function (done) {
             this.timeout(1000);
 
@@ -788,6 +787,8 @@ describe('Toolrunner Tests', function () {
                     done(err);
                 });
         });
+
+        // non-verbatim args
         it('exec defaults to non-verbatim args on Windows', function (done) {
             this.timeout(1000);
 
@@ -808,7 +809,13 @@ describe('Toolrunner Tests', function () {
                     done(err);
                 });
         });
-        it('exec sync allows verbatim args on Windows', function (done) {
+
+        // ---------------------
+        // exec sync arg tests
+        // ---------------------
+
+        // verbatim args
+        it('exec sync with verbatim args on Windows', function (done) {
             this.timeout(1000);
 
             let cmd = tl.tool(tl.which('cmd', true))
@@ -819,7 +826,9 @@ describe('Toolrunner Tests', function () {
             assert.equal(result.stdout.trim(), 'arg1 arg2:"some val"');
             done();
         });
-        it('exec sync defaults to non-verbatim args on Windows', function (done) {
+
+        // non-verbatim args
+        it('exec sync with non-verbatim args on Windows', function (done) {
             this.timeout(1000);
 
             let cmd = tl.tool(tl.which('cmd', true))
@@ -830,6 +839,43 @@ describe('Toolrunner Tests', function () {
             assert.equal(result.stdout.trim(), 'arg1 "arg2:\\"some val\\""');
             done();
         });
-        if('exec sync allows verbatim args for exe with spaces on Windows')
+
+        // verbatim args, space in exe path
+        it('exec sync with verbatim args for exe with spaces on Windows', function (done) {
+            this.timeout(1000);
+
+            let exePath = compileArgsExe('args exe with spaces.exe');
+            let exeRunner = tl.tool(exePath)
+                .arg('myarg1 myarg2');
+            let result: trm.IExecResult = exeRunner.execSync({ silent: true, windowsVerbatimArguments: true } as trm.IExecOptions);
+            assert.equal(result.stdout.trim(), [ "args[0]: 'myarg1'", "args[1]: 'myarg2'" ].join(os.EOL));
+            done();
+        });
+
+        // cmd file, space in cmd path, verbatim args
+        it('exec sync cmd file with space in file path and verbatim args on Windows', function (done) {
+            this.timeout(1000);
+
+            let cmdPath = path.join(__dirname, 'scripts', 'args cmd with spaces.cmd');
+            let cmdRunner = tl.tool(cmdPath)
+                .arg('arg1 arg2')
+                .arg('arg3');
+            let result: trm.IExecResult = cmdRunner.execSync({ silent: true, windowsVerbatimArguments: true } as trm.IExecOptions);
+            assert.equal(result.stdout.trim(), [ "args[0]: 'arg1'", "args[1]: 'arg2'", "args[2]: 'arg3'" ].join(os.EOL));
+            done();
+        });
+
+        // cmd file, space in cmd path, space in arg
+        it('exec sync cmd file with space in file path and space in arg on Windows', function (done) {
+            this.timeout(1000);
+
+            let cmdPath = path.join(__dirname, 'scripts', 'args cmd with spaces.cmd');
+            let cmdRunner = tl.tool(cmdPath)
+                .arg('my arg 1')
+                .arg('my arg 2');
+            let result: trm.IExecResult = cmdRunner.execSync({ silent: true } as trm.IExecOptions);
+            assert.equal(result.stdout.trim(), [ "args[0]: '\"my arg 1\"'", "args[1]: '\"my arg 2\"'" ].join(os.EOL));
+            done();
+        });
     }
 });
