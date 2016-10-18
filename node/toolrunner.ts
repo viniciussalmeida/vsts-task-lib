@@ -7,18 +7,6 @@ import child = require('child_process');
 import stream = require('stream');
 import tcm = require('./taskcommand');
 
-var run = function(cmd, callback) {
-    console.log('running: ' + cmd);
-    var output = '';
-    try {
-      
-    }
-    catch(err) {
-        console.log(err.message);
-    }
-
-}
-
 /**
  * Interface for exec options
  * 
@@ -58,7 +46,11 @@ export interface IExecResult {
 export class ToolRunner extends events.EventEmitter {
     constructor(toolPath) {
         super();
-        
+
+        if (!toolPath) {
+            throw new Error('Parameter \'toolPath\' cannot be null or empty.');
+        }
+
         this.toolPath = toolPath;
         this.args = [];
         this.silent = false;
@@ -127,6 +119,137 @@ export class ToolRunner extends events.EventEmitter {
         }
 
         return args;
+    }
+
+    private _getToolPath(options: IExecOptions): string {
+        if (process.platform == 'win32') {
+             let upperToolPath: string = this.toolPath.toUpperCase();
+             if (upperToolPath.endsWith('.BAT') || upperToolPath.endsWith('.CMD')) {
+                 return process.env['COMSPEC'] || 'cmd.exe';
+             }
+        }
+
+        return this.toolPath;
+    }
+
+    private _getArgs(options: IExecOptions): string[] {
+        if (process.platform == 'win32') {
+            let upperToolPath: string = this.toolPath.toUpperCase();
+            if (upperToolPath.endsWith('.BAT') || upperToolPath.endsWith('.CMD')) {
+                let argline: string = `/D /S /C "${this._windowsQuoteCmdArg(this.toolPath)}`;
+                for (let i = 0 ; i < this.args.length ; i++) {
+                    if (i > 0) {
+                        argline += ' ';
+                    }
+
+                    argline += options.windowsVerbatimArguments ? this.args[i] : this._windowsQuoteCmdArg(this.args[i]);
+                }
+
+                argline += '"';
+                return [ argline ];
+            }
+
+            if (options.windowsVerbatimArguments) {
+                let args = this.args.slice(0); // copy the array
+                args.slice = function () { // override slice, prevent Node from creating a copy of the arg array
+                    if (arguments.length == 1 && arguments[0] == 0) {
+                        return args;
+                    }
+
+                    throw new Error('Unexpected arguments passed to args.slice when windowsVerbatimArguments flag is set.');
+                };
+                args.unshift = function () {
+                    if (arguments.length == 1) {
+                        return args.unshift(`"${arguments[0]}"`); // quote the file name
+                    }
+
+                    throw new Error('Unexpected arguments passed to args.unshift when windowsVerbatimArguments flag is set.');
+                };
+                return args;
+            }
+        }
+
+        return this.args;
+    }
+
+    private _windowsQuoteCmdArg(arg: string): string {
+        // Tool runner wraps child_process.spawn() and needs to apply the same quoting as
+        // Node in certain cases where the undocumented spawn option windowsVerbatimArguments
+        // is used.
+        //
+        // Since this function is a port of quote_cmd_arg from Node 4.x (technically, lib UV,
+        // see https://github.com/nodejs/node/blob/v4.x/deps/uv/src/win/process.c for details),
+        // pasting copyright notice from Node within this function:
+        //
+        //      Copyright Joyent, Inc. and other Node contributors. All rights reserved.
+        //
+        //      Permission is hereby granted, free of charge, to any person obtaining a copy
+        //      of this software and associated documentation files (the "Software"), to
+        //      deal in the Software without restriction, including without limitation the
+        //      rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+        //      sell copies of the Software, and to permit persons to whom the Software is
+        //      furnished to do so, subject to the following conditions:
+        //
+        //      The above copyright notice and this permission notice shall be included in
+        //      all copies or substantial portions of the Software.
+        //
+        //      THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        //      IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        //      FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        //      AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        //      LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+        //      FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+        //      IN THE SOFTWARE.
+
+        if (!arg) {
+            // Need double quotation for empty argument
+            return '""';
+        }
+
+        if (arg.indexOf(' ') < 0 && arg.indexOf(' \t') < 0 && arg.indexOf('"') < 0) {
+            // No quotation needed
+            return arg;
+        }
+
+        if (arg.indexOf('"') < 0 && arg.indexOf('\\') < 0) {
+            // No embedded double quotes or backslashes, so I can just wrap
+            // quote marks around the whole thing.
+            return `"${arg}"`;
+        }
+
+        // Expected input/output:
+        //   input : hello"world
+        //   output: "hello\"world"
+        //   input : hello""world
+        //   output: "hello\"\"world"
+        //   input : hello\world
+        //   output: hello\world
+        //   input : hello\\world
+        //   output: hello\\world
+        //   input : hello\"world
+        //   output: "hello\\\"world"
+        //   input : hello\\"world
+        //   output: "hello\\\\\"world"
+        //   input : hello world\
+        //   output: "hello world\"
+        let reverse: string = '"';
+        let quote_hit = true;
+        for (let i = arg.length ; i > 0 ; i--) { // walk the string in reverse
+            reverse += arg.substr[i - 1];
+            if (quote_hit && arg[i - 1] == '\\') {
+                reverse += '\\';
+            }
+            else if (arg[i - 1] == '"') {
+                quote_hit = true;
+                reverse += '\\';
+            }
+            else {
+                quote_hit = false;
+            }
+        }
+
+        reverse += '"';
+        return reverse.split('').reverse().join('');
     }
 
     /**
@@ -460,5 +583,5 @@ export class ToolRunner extends events.EventEmitter {
         res.stdout = (r.stdout) ? r.stdout.toString() : null;
         res.stderr = (r.stderr) ? r.stderr.toString() : null;
         return res;
-    }   
+    }
 }

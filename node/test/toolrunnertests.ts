@@ -5,6 +5,8 @@
 /// <reference path="../_build/task.d.ts" />
 
 import assert = require('assert');
+import child_process = require('child_process');
+import fs = require('fs');
 import path = require('path');
 import os = require('os');
 import * as tl from '../_build/task';
@@ -730,6 +732,42 @@ describe('Toolrunner Tests', function () {
     })
 
     if (os.platform() == 'win32') {
+        // compile a program that allows checking args passed to it
+        let compileArgUtil = (targetPath: string): void => {
+            // short-circuit if already compiled
+            try {
+                fs.statSync(targetPath);
+                return;
+            }
+            catch (err) {
+                if (err.code != 'ENOENT') {
+                    throw err;
+                }
+            }
+
+            let sourceContent = ''
+                + os.EOL + 'using System;'
+                + os.EOL + 'namespace Args {'
+                + os.EOL + '    public static class Program {'
+                + os.EOL + '        public static void Main(string[] args) {'
+                + os.EOL + '            for (int i = 0 ; i < args.Length ; i++) {'
+                + os.EOL + '                Console.WriteLine("args[{0}]: \'{1}\'", i, args[i]);'
+                + os.EOL + '            }'
+                + os.EOL + '        }'
+                + os.EOL + '    }'
+                + os.EOL + '}';
+            let sourceFile = path.join(testutil.getTestTemp(), 'argutil.cs')
+            tl.mkdirP(testutil.getTestTemp());
+            fs.writeFileSync(sourceFile, sourceContent);
+            child_process.execFileSync(
+                'C:\\Windows\\Microsoft.NET\\Framework64\\v2.0.50727\\csc.exe',
+                [
+                    '/target:exe',
+                    `/out:${targetPath}`,
+                    sourceFile
+                ]);
+        }
+
         it('exec allows verbatim args on Windows', function (done) {
             this.timeout(1000);
 
@@ -792,5 +830,6 @@ describe('Toolrunner Tests', function () {
             assert.equal(result.stdout.trim(), 'arg1 "arg2:\\"some val\\""');
             done();
         });
+        if('exec sync allows verbatim args for exe with spaces on Windows')
     }
 });
